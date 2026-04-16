@@ -28,6 +28,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1b7b1928-e815-4599-8b22-9c2235a6b4c3"
+      }
+    },
+    "owner": "cybersamiorg"
   }
 }
