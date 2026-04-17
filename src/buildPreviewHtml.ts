@@ -2,16 +2,11 @@
  * Builds a self-contained HTML page that:
  *  1. Loads React + ReactDOM from unpkg CDN
  *  2. Loads @babel/standalone from unpkg CDN
- *  3. Transpiles the user's JSX at runtime (in the WebView)
- *  4. Renders the result into #root
- *
- * Component detection order:
- *   - default export  (export default MyComp)
- *   - module.exports.default
- *   - a global named `App`
+ *  3. Transpiles JSX + transforms ES modules to CJS via Babel
+ *  4. Provides a require() shim mapping common packages to CDN globals
+ *  5. Renders the default export (or App) into #root
  */
 export function buildPreviewHtml(userCode: string): string {
-  // Safely embed user code as a JS string so special chars don't break the page
   const jsonCode = JSON.stringify(userCode);
 
   return `<!DOCTYPE html>
@@ -22,7 +17,7 @@ export function buildPreviewHtml(userCode: string): string {
   <title>JSX Preview</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#fff; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; }
     #root { min-height: 100vh; }
     #error-box {
       display: none;
@@ -54,43 +49,47 @@ export function buildPreviewHtml(userCode: string): string {
         box.textContent = String(msg);
       }
 
+      // require() shim: maps common package names to CDN UMD globals
+      function require(id) {
+        var map = {
+          'react':              window.React,
+          'react-dom':          window.ReactDOM,
+          'react-dom/client':   window.ReactDOM,
+          'react/jsx-runtime':  window.React,
+          'react/jsx-dev-runtime': window.React,
+        };
+        if (id in map) return map[id];
+        throw new Error('Cannot require "' + id + '" — only React packages are available in the preview.');
+      }
+
       try {
         var userCode = ${jsonCode};
 
-        // Transpile JSX to plain JS
+        // Babel transforms JSX *and* converts import/export to CommonJS require/exports
         var transpiled = Babel.transform(userCode, {
-          presets: ['react'],
+          presets: [
+            ['env', { targets: { esmodules: true }, modules: 'commonjs' }],
+            'react',
+          ],
           filename: 'component.jsx',
         }).code;
 
-        // Rewrite ES module exports to CommonJS so we can eval safely
-        var cjs = transpiled
-          .replace(/export\\s+default\\s+/g, 'exports.__default = ')
-          .replace(/export\\s+\\{([^}]*)\\}/g, function (_, names) {
-            return names.split(',').map(function (n) {
-              var name = n.trim().split(/\\s+as\\s+/).pop();
-              return 'exports.' + name + ' = ' + name + ';';
-            }).join('\\n');
-          });
-
-        // Evaluate inside a sandboxed function with CommonJS-style env
-        var module  = { exports: {} };
-        var exports = module.exports;
+        var mod = { exports: {} };
 
         // eslint-disable-next-line no-new-func
-        new Function('React', 'module', 'exports', cjs)(
-          window.React, module, exports
+        new Function('require', 'module', 'exports', transpiled)(
+          require, mod, mod.exports
         );
 
         var Component =
-          exports.__default ||
-          module.exports.__default ||
-          (typeof App !== 'undefined' ? App : undefined);
+          mod.exports['default'] ||
+          mod.exports;
 
-        if (!Component) {
+        // If exports itself is a function/class treat it as the component
+        if (typeof Component !== 'function') {
           throw new Error(
             'No renderable component found.\\n\\n' +
-            'Either use "export default" or name your component "App".'
+            'Make sure you use "export default" on your component.'
           );
         }
 
