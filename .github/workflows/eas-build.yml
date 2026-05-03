@@ -56,8 +56,8 @@ jobs:
           path: jsx-viewer.apk
           retention-days: 30
 
-      - name: Attach APK to release
-        if: github.event_name == 'release'
+      - name: Attach APK to latest release
         uses: softprops/action-gh-release@v2
         with:
           files: jsx-viewer.apk
+          tag_name: ${{ github.event.release.tag_name || 'v1.0.0' }}
